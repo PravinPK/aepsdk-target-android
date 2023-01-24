@@ -13,6 +13,7 @@
 package com.adobe.marketing.mobile.target;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
 
 import com.adobe.marketing.mobile.Event;
 import com.adobe.marketing.mobile.EventSource;
@@ -116,6 +117,27 @@ public class TargetExtension extends Extension {
         targetResponseParser = new TargetResponseParser();
         targetPreviewManager = new TargetPreviewManager(networkService, uiService);
         targetRequestBuilder = getRequestBuilder();
+    }
+
+    /**
+     * Constructor for {@code TargetExtension}.
+     * <p>
+     * Used only for Testing purposes.
+     *
+     * @param extensionApi {@link ExtensionApi} instance.
+     */
+    @VisibleForTesting
+    protected TargetExtension(final ExtensionApi extensionApi, final DeviceInforming deviceInfoService, final Networking networkService,
+                              final UIService uiService, final TargetState targetState, final TargetPreviewManager targetPreviewManager,
+                              final TargetRequestBuilder requestBuilder, final TargetResponseParser responseParser) {
+        super(extensionApi);
+        this.deviceInfoService = deviceInfoService;
+        this.networkService = networkService;
+        this.uiService = uiService;
+        this.targetState = targetState;
+        this.targetPreviewManager = targetPreviewManager;
+        this.targetRequestBuilder = requestBuilder;
+        this.targetResponseParser = responseParser;
     }
 
     /**
@@ -658,8 +680,8 @@ public class TargetExtension extends Extension {
 
         if (targetState.getMobilePrivacyStatus() != MobilePrivacyStatus.OPT_IN) {
             Log.debug(TargetConstants.LOG_TAG, CLASS_NAME,
-                    "prepareForTargetRequest - TargetRequest preparation failed because (%s)", TargetErrors.OPTED_OUT);
-            return TargetErrors.OPTED_OUT;
+                    "prepareForTargetRequest - TargetRequest preparation failed because (%s)", TargetErrors.NOT_OPTED_IN);
+            return TargetErrors.NOT_OPTED_IN;
         }
 
         return null;
@@ -1438,7 +1460,6 @@ public class TargetExtension extends Extension {
 
     /**
      * Saves the {@code #thirdPartyId} to the Target DataStore or remove its key in the dataStore if the newThirdPartyId {@link String} is null
-     * If the {@code #thirdPartyId} ID is changed. We set the sessionID to null to start a new session.
      *
      * @param updatedThirdPartyId newThirdPartyID {@link String} to be set
      */

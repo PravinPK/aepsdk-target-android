@@ -15,7 +15,7 @@ package com.adobe.marketing.mobile.target;
 final class TargetErrors {
 	static final String NO_CLIENT_CODE = "Missing client code";
 	static final String CONFIG_NULL = "Missing shared configuration state";
-	static final String OPTED_OUT = "Privacy status is opted out";
+	static final String NOT_OPTED_IN = "Privacy status is not opted in";
 	static final String NO_PREFETCH_REQUESTS = "Empty or null prefetch requests list";
 	static final String NO_CONNECTION = "Unable to open connection";
 	static final String NULL_RESPONSE_JSON = "Null response Json";
