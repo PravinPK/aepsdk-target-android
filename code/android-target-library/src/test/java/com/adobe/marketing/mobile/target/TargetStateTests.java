@@ -1202,7 +1202,7 @@ public class TargetStateTests {
     }
 
     @Test
-    public void testNotifications_WhenEmptyOrNullJsonObject() throws JSONException {
+    public void testNotifications_WhenEmptyOrNullJsonObject() {
         // test
         targetState.addNotification(new JSONObject());
 
