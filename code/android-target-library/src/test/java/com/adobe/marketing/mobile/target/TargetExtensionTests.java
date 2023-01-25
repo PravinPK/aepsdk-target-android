@@ -18,6 +18,7 @@ import com.adobe.marketing.mobile.Event;
 import com.adobe.marketing.mobile.EventSource;
 import com.adobe.marketing.mobile.EventType;
 import com.adobe.marketing.mobile.ExtensionApi;
+import com.adobe.marketing.mobile.MobileCore;
 import com.adobe.marketing.mobile.MobilePrivacyStatus;
 import com.adobe.marketing.mobile.SharedStateResult;
 import com.adobe.marketing.mobile.SharedStateStatus;
@@ -25,6 +26,7 @@ import com.adobe.marketing.mobile.Target;
 import com.adobe.marketing.mobile.services.DeviceInforming;
 import com.adobe.marketing.mobile.services.HttpConnecting;
 import com.adobe.marketing.mobile.services.HttpMethod;
+import com.adobe.marketing.mobile.services.Log;
 import com.adobe.marketing.mobile.services.NamedCollection;
 import com.adobe.marketing.mobile.services.NetworkCallback;
 import com.adobe.marketing.mobile.services.NetworkRequest;
@@ -43,6 +45,7 @@ import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -54,7 +57,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import android.net.Uri;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import java.net.HttpURLConnection;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -79,6 +88,12 @@ public class TargetExtensionTests {
     private static String MOCK_PAIR_ID = "mockPairID";
     private static Integer MOCK_NETWORK_TIMEOUT = 5;
     private static String ERROR_RESPONSE = "Errors returned in Target response: ";
+
+    private static HashMap<String, Object> targetParameters =  new HashMap() {
+        {
+            put("paramKey" , "paramValue");
+        }
+    };
 
     private static HashMap<String, Object> targetSharedState =  new HashMap() {
         {
@@ -172,6 +187,7 @@ public class TargetExtensionTests {
         networkCallbackCaptor = ArgumentCaptor.forClass(NetworkCallback.class);
 
         when(requestBuilder.getRequestPayload(any(), any(), any(), any(), any(), any(), any())).thenReturn(validJSONObject());
+        when(requestBuilder.getRequestPayload(any(),any(),any(), any(), any())).thenReturn(validJSONObject());
 
         final JSONObject validMboxResponse = new JSONObject("{\"options\": [{\"content\": \"mbox0content\", \"type\": \"html\"}]}");
         when(responseParser.parseResponseToJson(any())).thenReturn(validJSONObject());
@@ -215,6 +231,17 @@ public class TargetExtensionTests {
         assertEquals("getVersion should return the correct extension version.", "2.0.0", extensionVersion);
     }
 
+    //**********************************************************************************************
+    // Constructor
+    //**********************************************************************************************
+    @Test
+    public void test_Constructor() {
+        // verify that the targetExtension extension does not throw any exception
+        new TargetExtension(mockExtensionApi);
+    }
+    //**********************************************************************************************
+    // onRegister Tests
+    //**********************************************************************************************
     @Test
     public void test_onRegister() {
         // test
@@ -223,7 +250,6 @@ public class TargetExtensionTests {
         // verify that five listeners are registers
         verify(mockExtensionApi, times(5)).registerEventListener(any(),any(),any());
     }
-
 
     //**********************************************************************************************
     // readyForEvent tests
@@ -471,7 +497,7 @@ public class TargetExtensionTests {
     }
 
     @Test
-    public void testLoadRequests_whenValidResponse() throws Exception{
+    public void testLoadRequests_whenValidResponse() throws Exception {
         // setup
         final JSONObject validMboxResponse = new JSONObject("{\"options\": [{\"content\": \"mbox0content\", \"type\": \"html\"}]}");
         when(responseParser.parseResponseToJson(any())).thenReturn(validJSONObject());
@@ -927,6 +953,7 @@ public class TargetExtensionTests {
         verifyNoInteractions(networkService);
         verifyNoInteractions(requestBuilder);
         verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
     }
 
     @Test
@@ -941,6 +968,7 @@ public class TargetExtensionTests {
         verifyNoInteractions(networkService);
         verifyNoInteractions(requestBuilder);
         verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
     }
 
     @Test
@@ -953,8 +981,8 @@ public class TargetExtensionTests {
 
         // verify
         verifyNoInteractions(networkService);
-        verifyNoInteractions(requestBuilder);
         verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
     }
 
     @Test
@@ -969,392 +997,680 @@ public class TargetExtensionTests {
         verifyNoInteractions(networkService);
         verifyNoInteractions(requestBuilder);
         verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
     }
-
 
     @Test
-    public void testHandleRawRequest_NoRequest_When_RequestPayloadIsEmpty() throws Exception {
-
+    public void testHandleRawRequest_NoRequest_When_RequestPayloadIsEmpty() throws JSONException{
         // setup
-        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-                "{}");
-        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
+        JSONObject json = new JSONObject("{}");
+        when(requestBuilder.getRequestPayload(any(),any(),any(), any(), any())).thenReturn(json);
 
         // test
-        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-        waitForExecutor(targetExtension.getExecutor());
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify no network request is made
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
+    }
+
+    @Test
+    public void testHandleRawRequest_SendRequest_When_RequestPayloadIsValid_sendsCorrectNetworkRequest() throws Exception {
+        // setup
+        JSONObject json = new JSONObject("{\"test\":\"value\"}");
+        when(requestBuilder.getRequestPayload(any(),any(),any(), any(), any())).thenReturn(json);
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
 
         // verify
-        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-        assertFalse(mockNetworkService.connectUrlWasCalled);
-        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
+        verify(networkService).connectAsync(networkRequestCaptor.capture(), networkCallbackCaptor.capture());
+        assertEquals("https://"+ MOCKED_TARGET_SERVER + "/rest/v1/delivery/?client="+ MOCKED_CLIENT_CODE + "&sessionId=" + MOCK_SESSION_ID, networkRequestCaptor.getValue().getUrl());
+        assertEquals(HttpMethod.POST, networkRequestCaptor.getValue().getMethod());
+        assertEquals(1, networkRequestCaptor.getValue().getHeaders().size());
+        assertEquals(json.toString() , new String( networkRequestCaptor.getValue().getBody(), StandardCharsets.UTF_8) );
+        assertEquals(MOCK_NETWORK_TIMEOUT, networkRequestCaptor.getValue().getReadTimeout(), 0);
+        assertEquals(MOCK_NETWORK_TIMEOUT, networkRequestCaptor.getValue().getConnectTimeout(), 0);
     }
-//
+
+    @Test
+    public void testHandleRawRequest_ResponseNotProcessed_When_ConnectionIsNull() {
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(null);
+
+        // verify the dispatched response event
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
+    }
+
+    @Test
+    public void testHandleRawRequest_DispatchRawResponse_When_ResponseJsonIsNull() {
+        // setup
+        when(responseParser.parseResponseToJson(any())).thenReturn(null);
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+
+        // verify the dispatched response event
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
+    }
+
+    @Test
+    public void testHandleRawRequest_DispatchRawResponse_When_NetworkResponseNot200() {
+        // setup
+        when(connecting.getResponseCode()).thenReturn(HttpURLConnection.HTTP_BAD_REQUEST);
+        when(responseParser.getErrorMessage(any())).thenReturn("SomeErrorMessage");
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify the dispatched response event
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertNull(eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
+    }
+
+    @Test
+    public void testHandleRawRequest_SetTntIdAndEdgeHost_When_ResponseJsonContainValidTntIdAndEdgeHost() {
+        // setup
+        when(responseParser.getTntId(any())).thenReturn(MOCK_TNT_ID_1);
+        when(responseParser.getEdgeHost(any())).thenReturn(MOCK_EDGE_HOST);
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify
+        verify(targetState).updateSessionTimestamp(eq(false));
+        verify(targetState).updateEdgeHost(eq(MOCK_EDGE_HOST));
+        verify(targetState).updateTntId(eq(MOCK_TNT_ID_1));
+    }
+
+    @Test
+    public void testHandleRawRequest_SetTntIdAndEdgeHostToNull_When_ResponseJsonNotContainTntIdAndEdgeHost()  {
+        // setup
+        when(responseParser.getTntId(any())).thenReturn(null);
+        when(responseParser.getEdgeHost(any())).thenReturn(null);
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify
+        verify(targetState).updateSessionTimestamp(eq(false));
+        verify(targetState,times(2)).updateEdgeHost(eq(null));
+        verify(targetState).updateTntId(eq(null));
+    }
+
+    @Test
+    public void testHandleRawRequest_DispatchExecuteResponse_When_ResponseJsonContainsMboxWithValidContent() {
+        // setup
+        Map<String, Object> executeMbox = new HashMap<String, Object>() {
+            {
+                put("name", "mbox0");
+                put("options", new ArrayList<Map<String, Object>>() {
+                    {
+                        add(new HashMap<String, Object>() {
+                            {
+                                put("type", "html");
+                                put("content", "<html><body>Hello</body></html>");
+                            }
+                        });
+                    }
+                });
+                put("metrics", new ArrayList<Map<String, Object>>() {
+                    {
+                        add(new HashMap<String, Object>() {
+                            {
+                                put("type", "click");
+                                put("eventToken", "LgG0+YDMHn4X5HqGJVoZ5g==");
+                            }
+                        });
+                    }
+                });
+            }
+        };
+
+        List<Map<String, Object>> executeMboxes = new ArrayList<Map<String, Object>>() {
+            {
+                add(executeMbox);
+            }
+        };
+
+        Map<String, Object> responseMap = new HashMap<String, Object>() {
+            {
+                put("status", 200);
+                put("requestId", "01d4a408-6978-48f7-95c6-03f04160b257");
+                put("client", "adobe");
+                put("edgeHost", "mboxedge35.tt.omtrdc.net");
+                put("id", new HashMap<String, Object>() {
+                    {
+                        put("tntId", "DE03D4AD-1FFE-421F-B2F2-303BF26822C1.35_0");
+                        put("marketingCloudVisitorId", "61055260263379929267175387965071996926");
+                    }
+                });
+                put("execute", new HashMap<String, Object>() {
+                    {
+                        put("mboxes", executeMboxes);
+                    }
+                });
+            }
+        };
+        when(responseParser.parseResponseToJson(any())).thenReturn(new JSONObject(responseMap));
+
+        // test
+        extension.handleTargetRequestContentEvent(rawRequestExecuteEvent(1));
+
+        // verify and call callback
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify the dispatched response event contains the response data parsed by responseParser
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals(responseMap, eventArgumentCaptor.getValue().getEventData().get(EventDataKeys.RESPONSE_DATA));
+    }
+
+    @Test
+    public void testHandleRawRequest_SendNotification_When_RequestPayloadIsValid() throws Exception {
+        // setup
+        JSONObject json = new JSONObject("{\"mbox\": {\"name\": \"mbox1\"}, \"tokens\":[\"someToken\"]}");
+        when(requestBuilder.getRequestPayload(any(),any(),any(), any(), any())).thenReturn(json);
+
+        // test
+        extension.handleTargetRequestContentEvent(getTargetRawRequestForNotificationsEvent(1));
+
+        // verify
+        verify(networkService).connectAsync(networkRequestCaptor.capture(), networkCallbackCaptor.capture());
+    }
+
+    // ========================================================================================
+    // HandleGenericDataOSEvent
+    // ========================================================================================
+    @Test
+    public void testHandleGenericDataOSEvent_withValidDeeplink() {
+        // setup
+        final String deeplink = "deeplink://something";
+        when(targetState.isPreviewEnabled()).thenReturn(true);
+
+        // test
+        extension.handleGenericDataOSEvent(previewDeeplinkEvent(deeplink));
+
+        // verify
+        verify(targetPreviewManager).enterPreviewModeWithDeepLinkParams(eq(MOCKED_CLIENT_CODE) ,eq(deeplink));
+    }
+
+    @Test
+    public void testHandleGenericDataOSEvent_whenPreviewNotEnabledInConfiguration() {
+        // setup
+        final String deeplink = "deeplink://something";
+        when(targetState.isPreviewEnabled()).thenReturn(false);
+
+        // test
+        extension.handleGenericDataOSEvent(previewDeeplinkEvent(deeplink));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void testHandleGenericDataOSEvent_whenNullDeeplink() {
+        // setup
+        when(targetState.isPreviewEnabled()).thenReturn(true);
+
+        // test
+        extension.handleGenericDataOSEvent(previewDeeplinkEvent(null));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void testHandleGenericDataOSEvent_whenEmptyDeeplink() {
+        // setup
+        when(targetState.isPreviewEnabled()).thenReturn(true);
+
+        // test
+        extension.handleGenericDataOSEvent(previewDeeplinkEvent(""));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void testHandleGenericDataOSEvent_when_targetNotConfigured() {
+        // setup
+        when(targetState.getClientCode()).thenReturn("");
+        when(targetState.isPreviewEnabled()).thenReturn(true);
+
+        // test
+        extension.handleGenericDataOSEvent(previewDeeplinkEvent("target:deeplink//"));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void testHandleGenericDataOSEvent_when_emptyEventData() {
+        // setup
+        when(targetState.isPreviewEnabled()).thenReturn(true);
+
+        // test
+        extension.handleGenericDataOSEvent(noEventDataEvent());
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    // ========================================================================================
+    // setPreviewRestartDeeplink
+    // ========================================================================================
+    @Test
+    public void setPreviewRestartDeepLink_when_emptyDeeplink() {
+        // test
+        extension.handleTargetRequestContentEvent(previewRestartDeeplinkEvent(""));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void setPreviewRestartDeepLink_when_nullDeeplink() {
+        // test
+        extension.handleTargetRequestContentEvent(previewRestartDeeplinkEvent(null));
+
+        // verify
+        verifyNoInteractions(targetPreviewManager);
+    }
+
+    @Test
+    public void setPreviewRestartDeepLink_when_validDeeplink() {
+        // test
+        final String restartDeeplink = "deeplink://";
+        extension.handleTargetRequestContentEvent(previewRestartDeeplinkEvent(restartDeeplink));
+
+        // verify
+        verify(targetPreviewManager).setRestartDeepLink(eq(restartDeeplink));
+    }
+
+    //**********************************************************************************************
+    // HandlePrefetchContent
+    //**********************************************************************************************
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_OptOut() {
+        // setup
+        when(targetState.getMobilePrivacyStatus()).thenReturn(MobilePrivacyStatus.OPT_OUT);
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Privacy status is not opted in", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_ClientCodeIsEmpty() {
+        // setup
+        when(targetState.getClientCode()).thenReturn("");
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Missing client code", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_NoPrefetchList() {
+        // setup
+        when(targetState.getClientCode()).thenReturn("");
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(0), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Empty or null prefetch requests list", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_PreviewModeInOn() {
+        // setup
+        when(targetPreviewManager.getPreviewParameters()).thenReturn("someParameter");
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Target prefetch can't be used while in preview mode", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_NetworkServiceIsNotAvailable() {
+        // setup
+        extension = new TargetExtension(mockExtensionApi, deviceInforming, null, uiService, targetState, targetPreviewManager, requestBuilder, responseParser);
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Unable to send target request, Network service is not available", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_TargetRequestBuilderIsNotAvailable() {
+        // setup
+        extension = new TargetExtension(mockExtensionApi, deviceInforming, networkService, uiService, targetState, targetPreviewManager, null, responseParser);
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Couldn't initialize the target request builder for this request", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_NoRequest_When_RequestPayloadIsNotGenerated() {
+        // setup
+        when(requestBuilder.getRequestPayload(any(), any(), any(), any(), any(), any(), any())).thenReturn(null);
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+
+        // verify
+        verifyNoInteractions(networkService);
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Failed to generate the Target request payload", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_attachesLifecycleAndIdentityData() {
+        // setup
+        setLifecycleSharedState();
+        setIdentitySharedState();
+
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+
+        // verify
+        verify(requestBuilder).getRequestPayload(anyList(), eq(null), eq(null), anyList(), eq(""), eq(identitySharedState), eq(lifecycleSharedState));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_when_ConnectionIsNull() {
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+
+        // verify
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+
+        // test
+        networkCallbackCaptor.getValue().call(null);
+
+        // verify
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Unable to open connection", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_makesCorrectNetworkRequest() {
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+
+        // verify
+        verify(networkService).connectAsync(networkRequestCaptor.capture(), networkCallbackCaptor.capture());
+        assertEquals("https://"+ MOCKED_TARGET_SERVER + "/rest/v1/delivery/?client="+ MOCKED_CLIENT_CODE + "&sessionId=" + MOCK_SESSION_ID, networkRequestCaptor.getValue().getUrl());
+        assertEquals(HttpMethod.POST,networkRequestCaptor.getValue().getMethod());
+        assertEquals(1,networkRequestCaptor.getValue().getHeaders().size());
+        assertEquals(MOCK_NETWORK_TIMEOUT, networkRequestCaptor.getValue().getReadTimeout(), 0);
+        assertEquals(MOCK_NETWORK_TIMEOUT, networkRequestCaptor.getValue().getConnectTimeout(), 0);
+    }
+
+    @Test
+    public void testHandlePrefetchContent_ReturnDefaultContent_When_ResponseNot200OK() {
+        // setup
+        when(connecting.getResponseCode()).thenReturn(HttpURLConnection.HTTP_BAD_REQUEST);
+
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify default response event dispatched
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Errors returned in Target response: ", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_ReturnError_when_ResponseJsonPrefetchError() {
+        // setup
+        when(responseParser.getErrorMessage(any())).thenReturn("<error_message>");
+
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Errors returned in Target response: <error_message>", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_ReturnError_when_ResponseIsNull() {
+        // setup
+        when(responseParser.parseResponseToJson(any())).thenReturn(null);
+        when(responseParser.getErrorMessage(any())).thenReturn("<error_message>");
+
+        // test
+        extension.handleTargetRequestContentEvent(prefetchContentEvent(getTargetPrefetchList(1), null));
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals("Null response Json <error_message>", eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_ERROR));
+        assertEquals(false, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+    }
+
+    @Test
+    public void testHandlePrefetchContent_ReturnTrue_When_ValidResponse() throws Exception {
+        final JSONObject validMboxResponse = new JSONObject("{\"options\": [{\"content\": \"mbox0content\", \"type\": \"html\"}]}");
+        when(responseParser.extractPrefetchedMboxes(any())).thenReturn( new HashMap<String, JSONObject>() {
+            {
+                put("mbox0", validMboxResponse);
+            }
+        });
+        String serverResponse = "{\n" +
+                "  \"prefetch\" : {\n" +
+                "  \"views\" : [{\n" +
+                "     \"options\" : [{\n" +
+                "     \"content\" : [{\n" +
+                "     \"id\" : \"1\" ,  \n" +
+                "      \"type\" : \"setHtml\" , \n" +
+                "      \"selector\" : \"toolBar\", \n" +
+                "      \"content\" : \"AAA\"" +
+                "  }], \n" +
+                "    \"type\" : \"actions\" ,  \n" +
+                "    \"eventToken\" : \"1zIHw4w+hPht4NV5MyssK4usK1YQ\"  \n" +
+                "  }]\n" +
+                "  }]\n" + "  }\n" +
+                "}";
+        when(responseParser.parseResponseToJson(any())).thenReturn(new JSONObject(serverResponse));
+
+        // test
+        final Event event = prefetchContentEvent(getTargetPrefetchList(1), null);
+        extension.handleTargetRequestContentEvent(event);
+        verify(networkService).connectAsync(any(), networkCallbackCaptor.capture());
+        networkCallbackCaptor.getValue().call(connecting);
+
+        // verify
+        verify(mockExtensionApi, times(1)).dispatch(eventArgumentCaptor.capture());
+        assertEquals(true, eventArgumentCaptor.getValue().getEventData().get(TargetConstants.EventDataKeys.PREFETCH_RESULT));
+
+        // verify other interaction with targetState
+        verify(targetState).clearNotifications();
+        verify(targetState).updateSessionTimestamp(eq(false));
+        verify(targetState).updateEdgeHost(MOCK_EDGE_HOST);
+        verify(mockExtensionApi).createSharedState(eq(targetSharedState), eq(event));
+    }
+
+    //**********************************************************************************************
+    // handleLocationsDisplayed
+    //**********************************************************************************************
+
+    @Test
+    public void testHandleLocationsDisplayed_NoRequest_When_OptOut() {
+        // setup
+        when(targetState.getMobilePrivacyStatus()).thenReturn(MobilePrivacyStatus.OPT_OUT);
+
+        // test
+        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(1));
+
+        // verify
+        verifyNoInteractions(networkService);
+        verifyNoInteractions(mockExtensionApi);
+    }
+
+    @Test
+    public void testHandleLocationsDisplayed_NoRequest_When_ClientCodeIsEmpty() {
+        // setup
+        when(targetState.getClientCode()).thenReturn("");
+
+        // test
+        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(1));
+
+        // verify
+        verifyNoInteractions(networkService);
+        verifyNoInteractions(mockExtensionApi);
+    }
+
+    @Test
+    public void testHandleLocationsDisplayed_NoRequest_When_networkServicesIsNotAvailable()  {
+        // setup
+        extension = new TargetExtension(mockExtensionApi, deviceInforming, null, uiService, targetState, targetPreviewManager, requestBuilder, responseParser);
+
+        // test
+        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(1));
+
+        // verify
+        verifyNoInteractions(networkService);
+        verifyNoInteractions(mockExtensionApi);
+    }
+
+    @Test
+    public void testHandleLocationsDisplayed_NoRequest_When_TargetRequestBuilderIsNotAvailable()  {
+        // setup
+        extension = new TargetExtension(mockExtensionApi, deviceInforming, networkService, uiService, targetState, targetPreviewManager, null, responseParser);
+
+        // test
+        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(1));
+
+        // verify
+        verifyNoInteractions(networkService);
+        verifyNoInteractions(mockExtensionApi);
+    }
+
+    @Test
+    public void testHandleLocationsDisplayed_NoRequest_When_NoMboxes() {
+        // test
+        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(0));
+
+        // verify
+        verifyNoInteractions(networkService);
+        verifyNoInteractions(mockExtensionApi);
+    }
+
 //    @Test
-//    public void testHandleRawRequest_SendRequest_When_RequestPayloadIsValid() throws Exception {
-//        // setup
+//    public void testHandleLocationsDisplayed_NoRequest_When_JsonPayloadIsEmpty() {
 //        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
 //        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
+//                "{}");
 //
 //        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
+//        extension.handleTargetRequestContentEvent(locationsDisplayedEvent(1));
 //
 //        // verify
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertEquals("{\"test\":\"value\"}", new String(mockNetworkService.connectUrlParametersConnectPayload));
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
+//        verifyNoInteractions(networkService);
+//        verifyNoInteractions(mockExtensionApi);
 //    }
 //
 //    @Test
-//    public void testHandleRawRequest_SendRequest_WithLocalIdentifiers_WhenTntIdAndThirdPartyIdAreNotNull() throws
-//            Exception {
-//
-//        // setup
-//        mockTargetDependenciesData();
-//        fakeDataStore.setString(TargetTestConstants.DataStoreKeys.TNT_ID, MOCK_TNT_ID_1);
-//        fakeDataStore.setString(TargetTestConstants.DataStoreKeys.THIRD_PARTY_ID, MOCK_THIRD_PARTY_ID_1);
-//
+//    public void testHandleLocationsDisplayed_Request_When_JsonPayloadIsValid() throws Exception {
 //        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.setConfigParametersWasCalled);
-//
-//        assertTrue(mockTargetRequestBuilder.setTargetInternalParametersWasCalled);
-//        assertEquals(mockTargetRequestBuilder.setTargetInternalParametersParameterTntId, MOCK_TNT_ID);
-//        assertEquals(mockTargetRequestBuilder.setTargetInternalParametersParameterThirdPartyId, MOCK_THIRD_PARTY_ID);
-//        assertTrue(mockTargetRequestBuilder.setIdentityParametersWasCalled);
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertEquals("{\"test\":\"value\"}", new String(mockNetworkService.connectUrlParametersConnectPayload));
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_SendRequest_WithPersistedIdentifiers_WhenLocalTntIdAndThirdPartyIdAreNull() throws
-//            Exception {
-//        // setup
-//        fakeDataStore.setString(TargetTestConstants.DataStoreKeys.TNT_ID, MOCK_TNT_ID_1);
-//        fakeDataStore.setString(TargetTestConstants.DataStoreKeys.THIRD_PARTY_ID, MOCK_THIRD_PARTY_ID_1);
-//
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.setConfigParametersWasCalled);
-//        assertTrue(mockTargetRequestBuilder.setTargetInternalParametersWasCalled);
-//        assertEquals(mockTargetRequestBuilder.setTargetInternalParametersParameterTntId, MOCK_TNT_ID_1);
-//        assertEquals(mockTargetRequestBuilder.setTargetInternalParametersParameterThirdPartyId, MOCK_THIRD_PARTY_ID_1);
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertEquals("{\"test\":\"value\"}", new String(mockNetworkService.connectUrlParametersConnectPayload));
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_ResponseNotProcessed_When_ConnectionIsNull() throws Exception {
-//
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = null;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertFalse(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_DispatchRawResponse_When_ResponseJsonIsNull() throws Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = null;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_SetTntIdAndEdgeHost_When_ResponseJsonContainValidTntIdAndEdgeHost() throws Exception {
-//
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//        mockTargetResponseParser.getTntIdReturnValue = "tntid";
-//        mockTargetResponseParser.getEdgeHostReturnValue = "edgeHost";
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertEquals("tntid", targetExtension.tntId);
-//        assertEquals("edgeHost", targetExtension.edgeHost);
-//
-//        EventData state = targetExtension.getSharedEventState(TargetTestConstants.EventDataKeys.Target.EXTENSION_NAME,
-//                Event.SHARED_STATE_NEWEST);
-//        assertEquals("tntid", state.optString(TargetTestConstants.EventDataKeys.Target.TNT_ID, "default"));
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_SetTntIdAndEdgeHostToNull_When_ResponseJsonNotContainTntIdAndEdgeHost() throws
-//            Exception {
-//        // setup
-//        targetExtension.tntId = "tntid";
-//        targetExtension.edgeHost = "edgeHost";
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//        mockTargetResponseParser.getTntIdReturnValue = null;
-//        mockTargetResponseParser.getEdgeHostReturnValue = null;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertNull(targetExtension.tntId);
-//        assertNull(targetExtension.edgeHost);
-//
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_SendTargetRequestUsesCorrectHost() throws Exception {
-//        // setup
-//        final String mockCustomServer = "myHost.here.com";
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true, mockCustomServer);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockNetworkService.connectUrlParametersUrl.contains(mockCustomServer));
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_DispatchExecuteResponse_When_ResponseJsonNotContainMbox() throws Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//        mockTargetResponseParser.extractRawResponseReturnValue = null;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1),  getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertTrue(mockTargetResponseParser.extractRawResponseCalled);
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_DispatchExecuteResponse_When_ResponseJsonIsEmpty() throws Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//        mockTargetResponseParser.extractRawResponseReturnValue = new HashMap<>();
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertTrue(mockTargetResponseParser.extractRawResponseCalled);
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_DispatchExecuteResponse_When_ResponseJsonContainsMboxWithValidContent() throws
-//            Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//        mockNetworkService.connectUrlReturnValue = new MockConnection(null, 200, "test", null);
-//        mockTargetResponseParser.parseResponseToJsonReturnValue = jsonUtilityService.createJSONObject("{}");
-//
-//        Map<String, Object> executeMbox = new HashMap<String, Object>() {
+//        setLifecycleSharedState(new HashMap<String, String>() {
 //            {
-//                put("name", "mbox0");
-//                put("options", new ArrayList<Map<String, Object>>() {
-//                    {
-//                        add(new HashMap<String, Object>() {
-//                            {
-//                                put("type", "html");
-//                                put("content", "<html><body>Hello</body></html>");
-//                            }
-//                        });
-//                    }
-//                });
-//                put("metrics", new ArrayList<Map<String, Object>>() {
-//                    {
-//                        add(new HashMap<String, Object>() {
-//                            {
-//                                put("type", "click");
-//                                put("eventToken", "LgG0+YDMHn4X5HqGJVoZ5g==");
-//                            }
-//                        });
-//                    }
-//                });
+//                put("lifecycleKey", "lifecycleValue");
 //            }
-//        };
+//        });
 //
-//        List<Map<String, Object>> executeMboxes = new ArrayList<Map<String, Object>>() {
-//            {
-//                add(executeMbox);
-//            }
-//        };
+//        JsonUtilityService.JSONObject jsonObject = jsonUtilityService.createJSONObject("{\n" +
+//                "\"name\": \"mbox1\",\n" +
+//                "\"options\": [{\"eventToken\":\"displayEventToken\"}]\n" +
+//                "}\n");
 //
-//        mockTargetResponseParser.extractRawResponseReturnValue = new HashMap<String, Object>() {
-//            {
-//                put("status", 200);
-//                put("requestId", "01d4a408-6978-48f7-95c6-03f04160b257");
-//                put("client", "adobe");
-//                put("edgeHost", "mboxedge35.tt.omtrdc.net");
-//                put("id", new HashMap<String, Object>() {
-//                    {
-//                        put("tntId", "DE03D4AD-1FFE-421F-B2F2-303BF26822C1.35_0");
-//                        put("marketingCloudVisitorId", "61055260263379929267175387965071996926");
-//                    }
-//                });
-//                put("execute", new HashMap<String, Object>() {
-//                    {
-//                        put("mboxes", executeMboxes);
-//                    }
-//                });
+//        List<String> mBoxList = new ArrayList<String>();
+//        mBoxList.add("mbox1");
 //
-//            }
-//        };
+//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = jsonObject;
+//        targetExtension.prefetchedMbox.put(mBoxList.get(0), jsonObject);
 //
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForExecute(1), getEvent());
+//        targetExtension.handleLocationsDisplayed(mBoxList, null, getEvent());
 //        waitForExecutor(targetExtension.getExecutor());
 //
-//        // verify
 //        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertTrue(mockTargetResponseParser.parseResponseToJsonWasCalled);
-//        assertTrue(mockTargetResponseParser.extractRawResponseCalled);
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(mockTargetResponseParser.extractRawResponseReturnValue,
-//                eventDispatcher.dispatchTargetRawResponseParameterResponseData);
-//        assertFalse(eventDispatcher.dispatchAnalyticsForTargetRequestWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
+//        assertEquals(jsonObject.toString(), new String(mockNetworkService.connectUrlParametersConnectPayload));
+//        assertTrue(mockTargetRequestBuilder.setLifecycleParametersWasCalled);
 //    }
 //
-//    @Test
-//    public void testHandleRawRequest_SendPrefetchRequest_When_RequestPayloadIsValid() throws Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        JsonUtilityService.JSONObject json = jsonUtilityService.createJSONObject(
-//                "{\"test\":\"value\"}");
-//
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue = json;
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForPrefetch(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//        assertEquals("{\"test\":\"value\"}", new String(mockNetworkService.connectUrlParametersConnectPayload));
-//        assertTrue(eventDispatcher.dispatchTargetRawResponseWasCalled);
-//        assertEquals(0, eventDispatcher.dispatchContentCalledCount);
-//    }
-//
-//    @Test
-//    public void testHandleRawRequest_SendNotification_When_RequestPayloadIsValid() throws Exception {
-//        // setup
-//        setCachedConfigurationSharedState(CACHED_CLIENT_CODE, MOCK_NETWORK_TIMEOUT, "optedin", true);
-//        mockTargetRequestBuilder.getRequestPayloadParametersReturnValue =
-//                jsonUtilityService.createJSONObject("{\"mbox\": {\"name\": \"mbox1\"}, \"tokens\":[\"someToken\"]}");
-//
-//        // test
-//        targetExtension.handleRawRequest(getTargetRawRequestForNotifications(1), getEvent());
-//        waitForExecutor(targetExtension.getExecutor());
-//
-//        // verify
-//        assertTrue(mockTargetRequestBuilder.getRequestPayloadWasCalled);
-//        assertTrue(mockNetworkService.connectUrlWasCalled);
-//    }
 
     // ========================================================================================
     // Private Helper methods
@@ -1543,9 +1859,6 @@ public class TargetExtensionTests {
             if (request == null) {
                 continue;
             }
-            final AdobeCallback<String> callback = request.getContentCallback();
-            final AdobeTargetDetailedCallback contentWithDataCallback = request.getContentWithDataCallback();
-
             final String responsePairId = UUID.randomUUID().toString();
             request.setResponsePairId(responsePairId);
 
@@ -1568,8 +1881,46 @@ public class TargetExtensionTests {
         return event;
     }
 
+    private Event prefetchContentEvent (final List<TargetPrefetch> targetPrefetchList, final TargetParameters parameters) {
+        final List<TargetPrefetch> prefetchRequestListCopy = new ArrayList<>(targetPrefetchList);
+        final List<Map<String, Object>> flattenedPrefetchRequests = new ArrayList<>();
+        for (final TargetPrefetch request: prefetchRequestListCopy) {
+            if (request == null) {
+                continue;
+            }
+            flattenedPrefetchRequests.add(request.toEventData());
+        }
+
+        final Map<String, Object> eventData = new HashMap<>();
+        eventData.put(EventDataKeys.PREFETCH, flattenedPrefetchRequests);
+        if (parameters != null) {
+            eventData.put(EventDataKeys.TARGET_PARAMETERS, parameters.toEventData());
+        }
+
+        final Event event = new Event.Builder(EventName.PREFETCH_REQUEST,
+                EventType.TARGET,
+                EventSource.REQUEST_CONTENT)
+                .setEventData(eventData)
+                .build();
+
+        return event;
+    }
+
     private Event rawRequestExecuteEvent(final int count) {
         final Map<String, Object> eventData = new HashMap<>(getTargetRawRequestForExecute(count));
+        eventData.put(EventDataKeys.IS_RAW_EVENT, true);
+
+        final Event event = new Event.Builder(EventName.TARGET_RAW_REQUEST,
+                EventType.TARGET,
+                EventSource.REQUEST_CONTENT)
+                .setEventData(eventData)
+                .build();
+
+        return event;
+    }
+
+    private Event getTargetRawRequestForNotificationsEvent(final int count) {
+        final Map<String, Object> eventData = new HashMap<>(getTargetRawRequestForNotifications(count));
         eventData.put(EventDataKeys.IS_RAW_EVENT, true);
 
         final Event event = new Event.Builder(EventName.TARGET_RAW_REQUEST,
@@ -1614,6 +1965,28 @@ public class TargetExtensionTests {
                 .build();
     }
 
+    private Event previewDeeplinkEvent(final String deeplink) {
+        final Map<String, Object> eventData = new HashMap<>();
+        eventData.put(EventDataKeys.DEEPLINK, deeplink);
+
+        return new Event.Builder("OS Deeplink Event",
+                EventType.GENERIC_DATA,
+                EventSource.OS)
+                .setEventData(eventData)
+                .build();
+    }
+
+    public static Event previewRestartDeeplinkEvent(final String deepLink) {
+        final Map<String, Object> eventData = new HashMap<>();
+        eventData.put(EventDataKeys.PREVIEW_RESTART_DEEP_LINK, deepLink);
+
+        return new Event.Builder(EventName.SET_PREVIEW_DEEPLINK,
+                EventType.TARGET,
+                EventSource.REQUEST_CONTENT)
+                .setEventData(eventData)
+                .build();
+    }
+
     private Event resetExperienceEvent() {
         final Map<String, Object> eventData = new HashMap<>();
         eventData.put(EventDataKeys.RESET_EXPERIENCE, true);
@@ -1639,10 +2012,26 @@ public class TargetExtensionTests {
         return event;
     }
 
+    private Event locationsDisplayedEvent(int mboxCount) {
+        List<String> mboxes = new ArrayList<>();
+        for (int i = 0; i < mboxCount; i++) {
+            mboxes.add("mbox" + i);
+        }
+        final Map<String, Object> eventData = new HashMap<>();
+        eventData.put(EventDataKeys.IS_LOCATION_DISPLAYED, true);
+        eventData.put(EventDataKeys.MBOX_NAMES, mboxes);
+        eventData.put(EventDataKeys.TARGET_PARAMETERS, targetParameters);
+
+        return new Event.Builder(EventName.LOCATIONS_DISPLAYED,
+                EventType.TARGET,
+                EventSource.REQUEST_CONTENT)
+                .setEventData(eventData)
+                .build();
+    }
+
     // ========================================================================================
     // Private Helper methods
     // ========================================================================================
-
     private String extractMboxContentFromEvent(final Event event) {
         return DataReader.optString(event.getEventData(),
                 EventDataKeys.TARGET_CONTENT,
@@ -1684,6 +2073,7 @@ public class TargetExtensionTests {
         static final String RESET_EXPERIENCE = "resetexperience";
         static final String CLEAR_PREFETCH_CACHE = "clearcache";
         static final String PREVIEW_RESTART_DEEP_LINK = "restartdeeplink";
+        static final String DEEPLINK = "deeplink";
         static final String IS_RAW_EVENT = "israwevent";
         static final String NOTIFICATIONS = "notifications";
         static final String RESPONSE_DATA = "responsedata";

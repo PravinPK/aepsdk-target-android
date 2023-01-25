@@ -210,6 +210,7 @@ public class TargetExtension extends Extension {
             if (TargetUtils.isNullOrEmpty(flattenedPrefetchRequests)) {
                 Log.warning(TargetConstants.LOG_TAG, CLASS_NAME,
                         "handleTargetRequestContentEvent -Failed to retrieve Target Prefetch list (%s)", TargetErrors.NO_PREFETCH_REQUESTS);
+                dispatchMboxPrefetchResult(TargetErrors.NO_PREFETCH_REQUESTS, event);
                 return;
             }
             final List<TargetPrefetch> targetPrefetchRequests = new ArrayList<>();
@@ -312,7 +313,7 @@ public class TargetExtension extends Extension {
         final String deepLink = DataReader.optString(event.getEventData(), TargetConstants.PreviewKeys.DEEPLINK, null);
 
         if (!StringUtils.isNullOrEmpty(deepLink)) {
-            setupPreviewMode(event, deepLink);
+            setupPreviewMode(deepLink);
         }
     }
 
@@ -753,7 +754,7 @@ public class TargetExtension extends Extension {
 
             // save the network request timestamp for computing the session id expiration
             targetState.updateSessionTimestamp(false);
-            setTntIdInternal( targetResponseParser.getTntId(responseJson));
+            setTntIdInternal(targetResponseParser.getTntId(responseJson));
             targetState.updateEdgeHost(targetResponseParser.getEdgeHost(responseJson));
 
             getApi().createSharedState(targetState.generateSharedState(), event);
@@ -780,7 +781,7 @@ public class TargetExtension extends Extension {
                                      final Event event) {
         if (TargetUtils.isNullOrEmpty(targetPrefetchRequests)) {
             Log.warning(TargetConstants.LOG_TAG, CLASS_NAME,
-                    "handleMboxPrefetch - Unable to prefetch mbox content, Error %s",
+                    "prefetchMboxContent - Unable to prefetch mbox content, Error %s",
                     TargetErrors.NO_PREFETCH_REQUESTS);
             dispatchMboxPrefetchResult(TargetErrors.NO_PREFETCH_REQUESTS, event);
             return;
@@ -789,7 +790,7 @@ public class TargetExtension extends Extension {
         final String sendRequestError = prepareForTargetRequest();
         if (sendRequestError != null) {
             Log.warning(TargetConstants.LOG_TAG, CLASS_NAME,
-                    "handleMboxPrefetch - Unable to prefetch mbox content, Error %s",
+                    "prefetchMboxContent - Unable to prefetch mbox content, Error %s",
                     sendRequestError);
             dispatchMboxPrefetchResult(sendRequestError, event);
             return;
@@ -1234,10 +1235,9 @@ public class TargetExtension extends Extension {
      * It then dispatches a new event to messages to create a custom full screen message for target preview.
      * Bail out if the Target configurations are not found or if preview is disabled in Target configuration or if {@code TargetPreviewManager} cannot be instantiated.
      *
-     * @param event    current {@link Event} used for retrieving the config shared state
      * @param deepLink {@link String} the deep link extracted from the {@link EventType#GENERIC_DATA} {@link EventSource#OS} event
      */
-    private void setupPreviewMode(final Event event, final String deepLink) {
+    private void setupPreviewMode(final String deepLink) {
         final String sendRequestError = prepareForTargetRequest();
         if (sendRequestError != null) {
             Log.debug(TargetConstants.LOG_TAG, "setupPreviewMode - " + TargetErrors.TARGET_NOT_ENABLED_FOR_PREVIEW,
