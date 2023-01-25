@@ -525,7 +525,7 @@ public class TargetExtension extends Extension {
 
         for (String mboxName : mboxNames) {
 
-            //If loadedMbox contains mboxName then do not send analytics request again
+            // If loadedMbox contains mboxName then do not send analytics request again
             if (StringUtils.isNullOrEmpty(mboxName) || targetState.getLoadedMbox().containsKey(mboxName)) {
                 continue;
             }
