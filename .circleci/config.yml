@@ -29,18 +29,22 @@ jobs:
         resource-class: large
         tag: 2022.01.1
     working_directory: ~/code
+    executor:
+        name: android/android-machine
+        resource-class: large
+        tag: 2021.10.1
     steps:
       - checkout
       - run:
-          name: Check style
+          name: Checkstyle
           command: make checkstyle
-      
-      # - run:
-      #     name: Javadoc
-      #     command: make javadoc
-      # - store_artifacts:
-      #     path: ci/javadoc/build/reports
 
+      - run:
+          name: Javadoc
+          command: make ci-javadoc
+      - store_artifacts:
+          path: ci/javadoc/build/reports
+          
       - run:
           name: Build
           command: make build
@@ -72,7 +76,7 @@ jobs:
     executor:
       name: android/android-machine
       resource-class: large
-      tag: 2022.01.1
+      tag: 2021.10.1
     steps:
       - checkout
       - android/start-emulator-and-run-tests:
