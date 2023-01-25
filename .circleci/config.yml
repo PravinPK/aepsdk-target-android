@@ -32,16 +32,16 @@ jobs:
     executor:
         name: android/android-machine
         resource-class: large
-        tag: 2021.10.1
+        tag: 2022.01.1
+    working_directory: ~/code
     steps:
       - checkout
       - run:
-          name: Checkstyle
-          command: make checkstyle
-
+          name: Check style
+          command: make checkstyle      
       - run:
           name: Javadoc
-          command: make ci-javadoc
+          command: make javadoc
       - store_artifacts:
           path: ci/javadoc/build/reports
           
